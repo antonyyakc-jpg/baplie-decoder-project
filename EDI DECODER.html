@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BAPLIE Decoder</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6;
+            color: #1f2937;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 flex items-center justify-center min-h-screen p-4">
+
+    <div class="bg-white rounded-2xl shadow-xl p-8 max-w-4xl w-full">
+        <header class="text-center mb-8">
+            <h1 class="text-4xl font-bold text-gray-800">BAPLIE Decoder</h1>
+            <p class="text-gray-500 mt-2">Upload a BAPLIE text file to get a detailed cargo summary.</p>
+        </header>
+
+        <!-- File Upload Section -->
+        <div class="border-2 border-dashed border-gray-300 rounded-xl p-6 text-center mb-8 bg-gray-50">
+            <label for="fileInput" class="cursor-pointer">
+                <div class="flex flex-col items-center">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v8"></path>
+                    </svg>
+                    <p class="mt-2 text-sm text-gray-600 font-medium">Click to upload a BAPLIE file</p>
+                    <p class="text-xs text-gray-400">.txt or .edi</p>
+                </div>
+                <input type="file" id="fileInput" class="hidden" accept=".txt, .edi">
+            </label>
+        </div>
+
+        <!-- Loading Indicator -->
+        <div id="loading" class="hidden text-center text-gray-500 mt-4">
+            <p>Decoding BAPLIE message...</p>
+        </div>
+
+        <!-- Summary Output -->
+        <div id="summary" class="hidden space-y-8">
+            
+            <!-- Overall Summary as a table -->
+            <div class="bg-gray-50 rounded-xl p-6 shadow-sm">
+                <h2 class="text-2xl font-semibold text-gray-800 mb-4">Overall Summary</h2>
+                <div class="overflow-x-auto">
+                    <table class="min-w-full divide-y divide-gray-200 text-sm">
+                        <tbody id="overallSummaryTableBody" class="bg-white divide-y divide-gray-200">
+                            <!-- Data will be populated here -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Special Container Breakdown -->
+            <div id="specialContainers" class="bg-gray-50 rounded-xl p-6 shadow-sm">
+                <h2 class="text-2xl font-semibold text-gray-800 mb-4">Special Container Breakdown</h2>
+                <div id="specialContent" class="space-y-6"></div>
+            </div>
+
+            <!-- Detailed List Button -->
+            <div id="showDetailsBtnContainer" class="text-center mt-6">
+                <button id="showDetailsBtn" class="bg-blue-600 text-white font-semibold py-2 px-6 rounded-lg shadow-md hover:bg-blue-700 transition duration-300 ease-in-out">
+                    View Detailed Container List
+                </button>
+            </div>
+            
+            <!-- Detailed Container List -->
+            <div id="containerList" class="hidden bg-gray-50 rounded-xl p-6 shadow-sm">
+                <h2 class="text-2xl font-semibold text-gray-800 mb-4">Detailed Container List</h2>
+                <table class="min-w-full divide-y divide-gray-200">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Container No.</th>
+                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
+                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Origin (POL)</th>
+                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Destination (POD)</th>
+                        </tr>
+                    </thead>
+                    <tbody id="containerTableBody" class="bg-white divide-y divide-gray-200">
+                        <!-- Data will be populated here -->
+                    </tbody>
+                </table>
+            </div>
+
+        </div>
+    </div>
+
+    <script>
+        document.getElementById('fileInput').addEventListener('change', function(event) {
+            const file = event.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                const loadingDiv = document.getElementById('loading');
+                const summaryDiv = document.getElementById('summary');
+
+                reader.onloadstart = function() {
+                    loadingDiv.classList.remove('hidden');
+                    summaryDiv.classList.add('hidden');
+                    document.getElementById('containerList').classList.add('hidden');
+                };
+
+                reader.onload = function(e) {
+                    const baplieText = e.target.result;
+                    const parsedData = parseBaplie(baplieText);
+                    displaySummary(parsedData);
+                    
+                    // Store parsed data for later use
+                    window.parsedBaplieData = parsedData;
+
+                    loadingDiv.classList.add('hidden');
+                    summaryDiv.classList.remove('hidden');
+                };
+                reader.readAsText(file);
+            }
+        });
+
+        document.getElementById('showDetailsBtn').addEventListener('click', function() {
+            const containerList = document.getElementById('containerList');
+            if (window.parsedBaplieData) {
+                // If data is already rendered, just show it
+                if (containerList.innerHTML.trim() !== '') {
+                    containerList.classList.remove('hidden');
+                } else {
+                    // Render the data and then show the container list
+                    displayDetailedList(window.parsedBaplieData);
+                    containerList.classList.remove('hidden');
+                }
+            }
+        });
+
+        function parseBaplie(baplieText) {
+            let segmentTerminator = "'";
+            let dataElementSeparator = "+";
+            let componentDataElementSeparator = ":";
+            
+            // Check for UNA segment to define custom delimiters
+            if (baplieText.startsWith('UNA')) {
+                const unaSegment = baplieText.substring(0, 9);
+                componentDataElementSeparator = unaSegment.charAt(3);
+                dataElementSeparator = unaSegment.charAt(4);
+                // skipping decimal notation (5), release indicator (6), reserved (7)
+                segmentTerminator = unaSegment.charAt(8);
+            }
+
+            const segments = baplieText.split(segmentTerminator).map(s => s.trim()).filter(s => s.length > 0);
+            const containers = [];
+            let currentContainer = null;
+
+            segments.forEach(segment => {
+                const parts = segment.split(dataElementSeparator);
+                const segmentType = parts[0];
+
+                switch (segmentType) {
+                    case 'EQD': // Equipment Details - This marks a new container
+                        if (currentContainer) {
+                            containers.push(currentContainer);
+                        }
+                        const eqdParts = parts[2].split(componentDataElementSeparator);
+                        currentContainer = {
+                            containerNo: eqdParts[0],
+                            sizeType: parts[3],
+                            operator: '',
+                            pol: '',
+                            pod: '',
+                            cargo: '',
+                            weight: '',
+                            temperature: '',
+                            tempRange: '',
+                            imdg: '',
+                            dimensions: ''
+                        };
+                        break;
+                    case 'NAD': // Name and Address - Operator
+                        if (parts[1] === 'CA' && currentContainer) {
+                            currentContainer.operator = parts[2].split(componentDataElementSeparator)[0];
+                        }
+                        break;
+                    case 'LOC': // Location
+                        if (parts[1].split(componentDataElementSeparator)[0] === '9' && currentContainer) { // Port of Loading (POL)
+                            currentContainer.pol = parts[2].split(componentDataElementSeparator)[0];
+                        } else if (parts[1].split(componentDataElementSeparator)[0] === '11' && currentContainer) { // Port of Discharge (POD)
+                            currentContainer.pod = parts[2].split(componentDataElementSeparator)[0];
+                        }
+                        break;
+                    case 'FTX': // Free Text - Cargo Description
+                        if (parts[1] === 'AAA' && currentContainer) {
+                            currentContainer.cargo = parts[3].split(componentDataElementSeparator).join(' ');
+                        }
+                        break;
+                    case 'MEA': // Measurements - Weight
+                        if (parts[1] === 'VGM' && currentContainer) {
+                            const meaParts = parts[2].split(componentDataElementSeparator);
+                            currentContainer.weight = meaParts[1] + ' ' + meaParts[0];
+                        }
+                        break;
+                    case 'TMP': // Temperature
+                        if (currentContainer) {
+                            const tmpParts = parts[2].split(componentDataElementSeparator);
+                            currentContainer.temperature = tmpParts[0] + ' ' + tmpParts[1];
+                        }
+                        break;
+                    case 'RNG': // Range - Temperature Range
+                        if (currentContainer) {
+                            const rngParts = parts[2].split(componentDataElementSeparator);
+                            currentContainer.tempRange = rngParts[1] + ' to ' + rngParts[2] + ' ' + rngParts[3];
+                        }
+                        break;
+                    case 'DIM': // Dimensions
+                        if (currentContainer) {
+                            const dimParts = parts[2].split(componentDataElementSeparator);
+                            currentContainer.dimensions = `${dimParts[1]} x ${dimParts[2]} x ${dimParts[3]} cm`;
+                        }
+                        break;
+                    case 'DGS':
+                        if (currentContainer) {
+                            currentContainer.imdg = parts[2].split(componentDataElementSeparator)[0];
+                        }
+                        break;
+                }
+            });
+
+            // Push the last container after the loop finishes
+            if (currentContainer) {
+                containers.push(currentContainer);
+            }
+
+            return containers;
+        }
+
+        function displaySummary(containers) {
+            const overallTableBody = document.getElementById('overallSummaryTableBody');
+            overallTableBody.innerHTML = '';
+            
+            // Overall Summary Table
+            const operatorMap = containers.reduce((acc, container) => {
+                const op = container.operator || 'N/A';
+                acc[op] = (acc[op] || 0) + 1;
+                return acc;
+            }, {});
+            const polMap = containers.reduce((acc, container) => {
+                const pol = container.pol || 'N/A';
+                acc[pol] = (acc[pol] || 0) + 1;
+                return acc;
+            }, {});
+            const podMap = containers.reduce((acc, container) => {
+                const pod = container.pod || 'N/A';
+                acc[pod] = (acc[pod] || 0) + 1;
+                return acc;
+            }, {});
+            
+            const overallSummaryData = [
+                { label: 'Total Containers', value: containers.length },
+                { label: 'Containers by Operator', value: Object.entries(operatorMap).map(([op, count]) => `${op} (${count})`).join(', ') },
+                { label: 'Containers by POL', value: Object.entries(polMap).map(([pol, count]) => `${pol} (${count})`).join(', ') },
+                { label: 'Containers by POD', value: Object.entries(podMap).map(([pod, count]) => `${pod} (${count})`).join(', ') }
+            ];
+
+            overallSummaryData.forEach(item => {
+                const row = `
+                    <tr>
+                        <td class="px-6 py-4 whitespace-nowrap font-medium text-gray-900">${item.label}</td>
+                        <td class="px-6 py-4 whitespace-normal text-gray-500">${item.value}</td>
+                    </tr>
+                `;
+                overallTableBody.innerHTML += row;
+            });
+
+
+            // Special Container Breakdown Tables
+            const specialContentDiv = document.getElementById('specialContent');
+            specialContentDiv.innerHTML = '';
+
+            const reeferContainers = containers.filter(c => c.sizeType.includes('R') || c.temperature);
+            const dgContainers = containers.filter(c => c.imdg); 
+            const oogContainers = containers.filter(c => c.dimensions && !c.sizeType.includes('R'));
+            const bbkContainers = containers.filter(c => c.sizeType === 'BB');
+
+            if (dgContainers.length > 0) {
+                specialContentDiv.innerHTML += `
+                    <div class="rounded-lg p-4 bg-red-50">
+                        <h3 class="text-lg font-semibold text-red-800">DG Containers (${dgContainers.length})</h3>
+                        <div class="overflow-x-auto">
+                            <table class="min-w-full divide-y divide-red-200 mt-2 text-sm text-red-700">
+                                <thead>
+                                    <tr>
+                                        <th class="px-3 py-2 text-left text-xs font-medium uppercase tracking-wider">Container No.</th>
+                                        <th class="px-3 py-2 text-left text-xs font-medium uppercase tracking-wider">IMDG Code</th>
+                                        <th class="px-3 py-2 text-left text-xs font-medium uppercase tracking-wider">Operator</th>
+                                        <th class="px-3 py-2 text-left text-xs font-medium uppercase tracking-wider">POL</th>
+                                        <th class="px-3 py-2 text-left text-xs font-medium uppercase tracking-wider">POD</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-red-200">
+                                    ${dgContainers.map(c => `
+                                        <tr>
+                                            <td class="px-3 py-2 whitespace-nowrap">${c.containerNo}</td>
+                                            <td class="px-3 py-2 whitespace-nowrap">${c.imdg}</td>
+                                            <td class="px-3 py-2 whitespace-nowrap">${c.operator}</td>
+                                            <td class="px-3 py-2 whitespace-nowrap">${c.pol}</td>
+                                            <td class="px-3 py-2 whitespace-nowrap">${c.pod}</td>
+                                        </tr>
+                                    `).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                `;
+            }
+
+            if (oogContainers.length > 0) {
+                specialContentDiv.innerHTML += `
+                    <div class="rounded-lg p-4 bg-yellow-50">
+                        <h3 class="text-lg font-semibold text-yellow-800">OOG Containers (${oogContainers.length})</h3>
+                        <div class="overflow-x-auto">
+                            <table class="min-w-full divide-y divide-yellow-200 mt-2 text-sm text-yellow-700">
+                                <thead>
+                                    <tr>
+                                        <th class="px-3 py-2 text-left text-xs font-medium uppercase tracking-wider">Container No.</th>
+                                        <th class="px-3 py-2 text-left text-xs font-medium uppercase tracking-wider">Dimensions</th>
+                                        <th class="px-3 py-2 text-left text-xs font-medium uppercase tracking-wider">Operator</th>
+                                        <th class="px-3 py-2 text-left text-xs font-medium uppercase tracking-wider">POL</th>
+                                        <th class="px-3 py-2 text-left text-xs font-medium uppercase tracking-wider">POD</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-yellow-200">
+                                    ${oogContainers.map(c => `
+                                        <tr>
+                                            <td class="px-3 py-2 whitespace-nowrap">${c.containerNo}</td>
+                                            <td class="px-3 py-2 whitespace-nowrap">${c.dimensions}</td>
+                                            <td class="px-3 py-2 whitespace-nowrap">${c.operator}</td>
+                                            <td class="px-3 py-2 whitespace-nowrap">${c.pol}</td>
+                                            <td class="px-3 py-2 whitespace-nowrap">${c.pod}</td>
+                                        </tr>
+                                    `).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                `;
+            }
+            
+            if (reeferContainers.length > 0) {
+                specialContentDiv.innerHTML += `
+                    <div class="rounded-lg p-4 bg-blue-50">
+                        <h3 class="text-lg font-semibold text-blue-800">REEFER Containers (${reeferContainers.length})</h3>
+                        <div class="overflow-x-auto">
+                            <table class="min-w-full divide-y divide-blue-200 mt-2 text-sm text-blue-700">
+                                <thead>
+                                    <tr>
+                                        <th class="px-3 py-2 text-left text-xs font-medium uppercase tracking-wider">Container No.</th>
+                                        <th class="px-3 py-2 text-left text-xs font-medium uppercase tracking-wider">Temp</th>
+                                        <th class="px-3 py-2 text-left text-xs font-medium uppercase tracking-wider">Operator</th>
+                                        <th class="px-3 py-2 text-left text-xs font-medium uppercase tracking-wider">POL</th>
+                                        <th class="px-3 py-2 text-left text-xs font-medium uppercase tracking-wider">POD</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-blue-200">
+                                    ${reeferContainers.map(c => `
+                                        <tr>
+                                            <td class="px-3 py-2 whitespace-nowrap">${c.containerNo}</td>
+                                            <td class="px-3 py-2 whitespace-nowrap">${c.temperature} (${c.tempRange})</td>
+                                            <td class="px-3 py-2 whitespace-nowrap">${c.operator}</td>
+                                            <td class="px-3 py-2 whitespace-nowrap">${c.pol}</td>
+                                            <td class="px-3 py-2 whitespace-nowrap">${c.pod}</td>
+                                        </tr>
+                                    `).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                `;
+            }
+
+            if (bbkContainers.length > 0) {
+                specialContentDiv.innerHTML += `
+                    <div class="rounded-lg p-4 bg-purple-50">
+                        <h3 class="text-lg font-semibold text-purple-800">BBK Containers (${bbkContainers.length})</h3>
+                        <div class="overflow-x-auto">
+                            <table class="min-w-full divide-y divide-purple-200 mt-2 text-sm text-purple-700">
+                                <thead>
+                                    <tr>
+                                        <th class="px-3 py-2 text-left text-xs font-medium uppercase tracking-wider">Container No.</th>
+                                        <th class="px-3 py-2 text-left text-xs font-medium uppercase tracking-wider">Operator</th>
+                                        <th class="px-3 py-2 text-left text-xs font-medium uppercase tracking-wider">POL</th>
+                                        <th class="px-3 py-2 text-left text-xs font-medium uppercase tracking-wider">POD</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-purple-200">
+                                    ${bbkContainers.map(c => `
+                                        <tr>
+                                            <td class="px-3 py-2 whitespace-nowrap">${c.containerNo}</td>
+                                            <td class="px-3 py-2 whitespace-nowrap">${c.operator}</td>
+                                            <td class="px-3 py-2 whitespace-nowrap">${c.pol}</td>
+                                            <td class="px-3 py-2 whitespace-nowrap">${c.pod}</td>
+                                        </tr>
+                                    `).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                `;
+            }
+
+            if (specialContentDiv.innerHTML === '') {
+                specialContentDiv.innerHTML = '<p class="text-center text-gray-500">No special container types found in this file.</p>';
+            }
+        }
+
+        function displayDetailedList(containers) {
+            const tableBody = document.getElementById('containerTableBody');
+            tableBody.innerHTML = '';
+            containers.forEach(c => {
+                const row = `
+                    <tr>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">${c.containerNo}</td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${c.sizeType}</td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${c.pol}</td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${c.pod}</td>
+                    </tr>
+                `;
+                tableBody.innerHTML += row;
+            });
+        }
+    </script>
+
+</body>
+</html>
